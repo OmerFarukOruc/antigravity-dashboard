@@ -5,7 +5,11 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://makeapullrequest.com)
 
-![Dashboard Screenshot](docs/screenshot.png)
+<img width="1265" height="1285" alt="1" src="https://github.com/user-attachments/assets/c45da008-01a4-4e5f-b53a-c517ded2ee32" />
+
+<img width="1280" height="906" alt="2" src="https://github.com/user-attachments/assets/668bfa68-e1c1-4eee-b78c-c294021de0de" />
+
+
 *Real-time quota monitoring with multi-account support*
 
 Real-time monitoring dashboard for Google Cloud accounts using the [Antigravity OAuth flow](https://github.com/NoeFabris/opencode-antigravity-auth). Track API quotas, usage limits, and reset times across multiple accounts with a Claude/OpenAI compatible API proxy.
