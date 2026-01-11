@@ -17,12 +17,12 @@ interface FilterCounts {
   low_quota: number;
 }
 
-function FilterTabs({ 
-  current, 
-  onChange, 
-  counts 
-}: { 
-  current: AccountFilterType; 
+function FilterTabs({
+  current,
+  onChange,
+  counts
+}: {
+  current: AccountFilterType;
   onChange: (f: AccountFilterType) => void;
   counts: FilterCounts;
 }) {
@@ -104,14 +104,14 @@ interface AccountRowProps {
   loading?: boolean;
 }
 
-function AccountRow({ 
-  account, 
-  selected, 
-  onSelect, 
-  onSetActive, 
-  onRefresh, 
+function AccountRow({
+  account,
+  selected,
+  onSelect,
+  onSetActive,
+  onRefresh,
   onDelete,
-  loading 
+  loading
 }: AccountRowProps) {
   const modelQuotas = account.modelQuotas || [];
   const geminiPro = modelQuotas.find(m => m.id === 'gemini-3-pro');
@@ -124,9 +124,9 @@ function AccountRow({
       {/* Checkbox */}
       <td className="py-3 px-3 w-10">
         <label className="checkbox-custom">
-          <input 
-            type="checkbox" 
-            checked={selected} 
+          <input
+            type="checkbox"
+            checked={selected}
             onChange={onSelect}
           />
           <span className="checkmark"></span>
@@ -156,30 +156,30 @@ function AccountRow({
       <td className="py-3 px-3">
         <div className="flex flex-wrap gap-1.5">
           {geminiPro && (
-            <QuotaBadge 
-              label="Pro" 
-              percentage={geminiPro.percentage} 
+            <QuotaBadge
+              label="Pro"
+              percentage={geminiPro.percentage}
               size="sm"
             />
           )}
           {geminiFlash && (
-            <QuotaBadge 
-              label="Flash" 
-              percentage={geminiFlash.percentage} 
+            <QuotaBadge
+              label="Flash"
+              percentage={geminiFlash.percentage}
               size="sm"
             />
           )}
           {geminiImage && (
-            <QuotaBadge 
-              label="Image" 
-              percentage={geminiImage.percentage} 
+            <QuotaBadge
+              label="Image"
+              percentage={geminiImage.percentage}
               size="sm"
             />
           )}
           {claude && (
-            <QuotaBadge 
-              label="Claude" 
-              percentage={claude.percentage} 
+            <QuotaBadge
+              label="Claude"
+              percentage={claude.percentage}
               size="sm"
             />
           )}
@@ -194,13 +194,13 @@ function AccountRow({
         <div className="flex items-center gap-1.5 text-text-muted">
           <Clock className="w-3 h-3" />
           <span className="text-xs">
-            {account.lastUsed > 0 
+            {account.lastUsed > 0
               ? new Date(account.lastUsed).toLocaleString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })
               : 'Never'
             }
           </span>
@@ -246,7 +246,7 @@ function AccountRow({
 }
 
 export function AccountsPage() {
-  const { 
+  const {
     selectedAccounts,
     accountFilter,
     accountSearch,
@@ -300,7 +300,7 @@ export function AccountsPage() {
   // Apply filters and search
   const filteredAccounts = useMemo(() => {
     let accounts = enrichedAccounts;
-    
+
     // Apply filter
     switch (accountFilter) {
       case 'PRO':
@@ -319,15 +319,15 @@ export function AccountsPage() {
         });
         break;
     }
-    
+
     // Apply search
     if (accountSearch) {
       const search = accountSearch.toLowerCase();
-      accounts = accounts.filter(a => 
+      accounts = accounts.filter(a =>
         a.email.toLowerCase().includes(search)
       );
     }
-    
+
     return accounts;
   }, [enrichedAccounts, accountFilter, accountSearch]);
 
@@ -443,7 +443,7 @@ export function AccountsPage() {
             ({enrichedAccounts.length} total)
           </span>
         </h1>
-        
+
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowAddDialog(true)}
@@ -469,10 +469,10 @@ export function AccountsPage() {
               className="input-field pl-10 w-full"
             />
           </div>
-          
+
           {/* Filter Tabs */}
-          <FilterTabs 
-            current={accountFilter} 
+          <FilterTabs
+            current={accountFilter}
             onChange={setAccountFilter}
             counts={filterCounts}
           />
@@ -519,9 +519,9 @@ export function AccountsPage() {
               <tr>
                 <th className="py-2 px-3 w-10">
                   <label className="checkbox-custom">
-                    <input 
-                      type="checkbox" 
-                      checked={allSelected} 
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
                       onChange={handleSelectAll}
                     />
                     <span className="checkmark"></span>
@@ -589,13 +589,13 @@ export function AccountsPage() {
               Are you sure you want to delete <strong>{deleteConfirm}</strong>? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-2">
-              <button 
+              <button
                 onClick={() => setDeleteConfirm(null)}
                 className="btn-secondary"
               >
                 Cancel
               </button>
-              <button 
+              <button
                 onClick={() => handleDeleteAccount(deleteConfirm)}
                 className="btn-danger"
               >
@@ -615,13 +615,13 @@ export function AccountsPage() {
               Are you sure you want to delete <strong>{selectedAccounts.length}</strong> account{selectedAccounts.length > 1 ? 's' : ''}? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-2">
-              <button 
+              <button
                 onClick={() => setBulkDeleteConfirm(false)}
                 className="btn-secondary"
               >
                 Cancel
               </button>
-              <button 
+              <button
                 onClick={handleBulkDelete}
                 className="btn-danger"
               >
@@ -634,8 +634,8 @@ export function AccountsPage() {
 
       {/* Add Account Dialog */}
       {showAddDialog && (
-        <AddAccountDialog 
-          onClose={() => setShowAddDialog(false)} 
+        <AddAccountDialog
+          onClose={() => setShowAddDialog(false)}
           onSuccess={() => {
             setShowAddDialog(false);
             fetchEnrichedAccounts();
@@ -661,7 +661,7 @@ function AddAccountDialog({ onClose, onSuccess }: AddAccountDialogProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
+
     if (!email.trim()) {
       setError('Email is required');
       return;
@@ -687,7 +687,7 @@ function AddAccountDialog({ onClose, onSuccess }: AddAccountDialogProps) {
         })
       });
       const data = await res.json();
-      
+
       if (data.success) {
         onSuccess();
       } else {
@@ -700,11 +700,74 @@ function AddAccountDialog({ onClose, onSuccess }: AddAccountDialogProps) {
     }
   };
 
+  const handleGoogleAuth = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/auth/google/url');
+      const data = await res.json();
+
+      if (data.success && data.url) {
+        const width = 500;
+        const height = 600;
+        const left = window.screen.width / 2 - width / 2;
+        const top = window.screen.height / 2 - height / 2;
+
+        const popup = window.open(
+          data.url,
+          'google_auth',
+          `width=${width},height=${height},top=${top},left=${left}`
+        );
+
+        if (popup) {
+          const timer = setInterval(() => {
+            if (popup.closed) {
+              clearInterval(timer);
+              setLoading(false);
+              onSuccess();
+            }
+          }, 500);
+        } else {
+          setError('Popup blocked. Please allow popups.');
+          setLoading(false);
+        }
+      }
+    } catch (e) {
+      setError('Failed to start Google Auth');
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="dialog-overlay" onClick={onClose}>
       <div className="dialog-content max-w-md" onClick={e => e.stopPropagation()}>
         <h3 className="text-lg font-bold text-text-primary mb-4">Add Account</h3>
-        
+
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={handleGoogleAuth}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-2 bg-white text-gray-900 border border-gray-200 hover:bg-gray-50 font-medium py-2.5 px-4 rounded-lg transition-colors"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+            </svg>
+            Sign in with Google
+          </button>
+
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-white/10"></div>
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-[#1e293b] px-2 text-text-muted">Or enter manually</span>
+            </div>
+          </div>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
@@ -719,7 +782,7 @@ function AddAccountDialog({ onClose, onSuccess }: AddAccountDialogProps) {
               autoFocus
             />
           </div>
-          
+
           <div>
             <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
               Refresh Token
@@ -735,7 +798,7 @@ function AddAccountDialog({ onClose, onSuccess }: AddAccountDialogProps) {
               OAuth refresh token from antigravity-auth
             </p>
           </div>
-          
+
           <div>
             <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
               Project ID <span className="text-text-muted font-normal">(optional)</span>
@@ -754,16 +817,16 @@ function AddAccountDialog({ onClose, onSuccess }: AddAccountDialogProps) {
               {error}
             </div>
           )}
-          
+
           <div className="flex justify-end gap-2 pt-2">
-            <button 
+            <button
               type="button"
               onClick={onClose}
               className="btn-secondary"
             >
               Cancel
             </button>
-            <button 
+            <button
               type="submit"
               disabled={loading}
               className="btn-primary"

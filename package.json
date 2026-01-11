@@ -2,7 +2,6 @@
   "name": "antigravity-dashboard",
   "version": "1.0.0",
   "description": "Real-time monitoring dashboard for Google Cloud accounts using the Antigravity OAuth flow. Track API quotas, usage limits, and reset times with Claude/OpenAI compatible API proxy.",
-
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -36,5 +35,8 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "opencode-antigravity-auth": "^1.2.8"
   }
 }

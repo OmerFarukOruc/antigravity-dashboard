@@ -26,6 +26,8 @@ import type { AddAccountPayload } from './types';
 import { proxyApiRouter, proxyManagementRouter, initializeProxyRoutes } from './routes/proxy';
 import type { ProxyRequestLog, ProxyLogger, RateLimitNotifier } from './services/apiProxy/index.js';
 import { requireAuth, isAuthEnabled, getBindHost, validateWebSocketAuth } from './utils/authMiddleware';
+import crypto from 'crypto';
+import { URL, URLSearchParams } from 'url';
 
 const ACCOUNTS_FILE_PATH = join(homedir(), '.config', 'opencode', 'antigravity-accounts.json');
 
@@ -34,7 +36,7 @@ const PORT = process.env.DASHBOARD_PORT || 3456;
 const MANAGER_URL = process.env.MANAGER_URL || 'http://localhost:8080';
 
 // Security: Default to localhost-only CORS if not configured
-const defaultCorsOrigins = isAuthEnabled() 
+const defaultCorsOrigins = isAuthEnabled()
   ? ['http://localhost:3456', 'http://localhost:5173']
   : ['http://localhost:3456', 'http://127.0.0.1:3456', 'http://localhost:5173'];
 const corsOrigins = process.env.CORS_ORIGINS?.split(',') || defaultCorsOrigins;
@@ -115,7 +117,7 @@ const rateLimitNotifier: RateLimitNotifier = {
       },
       timestamp: Date.now(),
     });
-    
+
     const family = model.toLowerCase().includes('claude') ? 'claude' : 'gemini';
     accountsService.markAccountRateLimited(email, family, resetTime?.getTime());
   },
@@ -172,23 +174,23 @@ initializeProxyRoutes(
     const rateLimitedEmails = new Set(
       accountsService.getRateLimitedAccounts().map(a => a.email)
     );
-    
+
     const availableAccounts = allAccounts.filter(a => !rateLimitedEmails.has(a.email));
     const accountsToUse = availableAccounts.length > 0 ? availableAccounts : allAccounts;
-    
+
     if (accountsToUse.length === 0) return null;
-    
+
     const quotaCache = quotaService.getCache();
     const accountsWithQuota = accountsToUse.map(acc => {
       const quota = quotaCache.accounts.get(acc.email);
-      const quotaPercent = family === 'gemini' 
+      const quotaPercent = family === 'gemini'
         ? (quota?.geminiQuotaPercent ?? 100)
         : (quota?.claudeQuotaPercent ?? 100);
       return { ...acc, quotaPercent };
     });
-    
+
     accountsWithQuota.sort((a, b) => b.quotaPercent - a.quotaPercent);
-    
+
     const best = accountsWithQuota[0];
     return {
       email: best.email,
@@ -371,21 +373,165 @@ app.post('/api/accounts/quota/clear-cache', async (req, res) => {
   try {
     quotaService.clearTokenCache();
     quotaService.clearQuotaCache();
-    
+
     const accounts = getRawAccountsForQuota();
     if (accounts.length > 0) {
       const quotas = await quotaService.forceRefresh(accounts);
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: 'Token and quota caches cleared and refreshed',
-        data: quotas 
+        data: quotas
       });
     } else {
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: 'Token and quota caches cleared (no accounts to refresh)'
       });
     }
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== Google OAuth Flow ====================
+
+const CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
+const CLIENT_SECRET = "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";
+const OAUTH_REDIRECT_URI = "http://localhost:51121/oauth-callback";
+const OAUTH_SCOPES = [
+  "https://www.googleapis.com/auth/cloud-platform",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+  "https://www.googleapis.com/auth/cclog",
+  "https://www.googleapis.com/auth/experimentsandconfigs",
+  "openid"
+];
+
+// PKCE Helpers
+function base64URLEncode(str: Buffer): string {
+  return str.toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
+
+function sha256(buffer: Buffer): Buffer {
+  return crypto.createHash('sha256').update(buffer).digest();
+}
+
+let activeAuthServer: ReturnType<typeof createServer> | null = null;
+let currentVerifier: string | null = null;
+
+app.get('/api/auth/google/url', (req, res) => {
+  try {
+    const verifier = base64URLEncode(crypto.randomBytes(32));
+    const challenge = base64URLEncode(sha256(Buffer.from(verifier)));
+    currentVerifier = verifier;
+
+    const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    authUrl.searchParams.append('client_id', CLIENT_ID);
+    authUrl.searchParams.append('redirect_uri', OAUTH_REDIRECT_URI);
+    authUrl.searchParams.append('response_type', 'code');
+    authUrl.searchParams.append('scope', OAUTH_SCOPES.join(' '));
+    authUrl.searchParams.append('access_type', 'offline');
+    authUrl.searchParams.append('prompt', 'consent');
+    authUrl.searchParams.append('code_challenge', challenge);
+    authUrl.searchParams.append('code_challenge_method', 'S256');
+
+    // Start temporary server if not running
+    if (!activeAuthServer) {
+      activeAuthServer = createServer(async (req, res) => {
+        const parsedUrl = new URL(req.url || '', `http://${req.headers.host}`);
+
+        if (parsedUrl.pathname === '/oauth-callback') {
+          const code = parsedUrl.searchParams.get('code');
+          try {
+            if (!code) throw new Error('No code received');
+
+            // Exchange code
+            const tokenUrl = 'https://oauth2.googleapis.com/token';
+            const params = new URLSearchParams();
+            params.append('client_id', CLIENT_ID);
+            params.append('client_secret', CLIENT_SECRET);
+            params.append('code', code);
+            params.append('grant_type', 'authorization_code');
+            params.append('redirect_uri', OAUTH_REDIRECT_URI);
+            params.append('code_verifier', currentVerifier || '');
+
+            const response = await fetch(tokenUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: params
+            });
+
+            const tokens = await response.json() as any;
+            if (!response.ok) {
+              throw new Error(`Token exchange failed: ${JSON.stringify(tokens)}`);
+            }
+
+            // Save account
+            // Extract email from ID token
+            let email = 'unknown_user';
+            if (tokens.id_token) {
+              const payload = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64').toString());
+              if (payload.email) email = payload.email;
+            }
+
+            // Add to accounts service
+            await accountsService.addAccount({
+              email,
+              refreshToken: tokens.refresh_token,
+              projectId: '' // Optional, can be updated later
+            });
+
+            // Broadcast update
+            wsManager.broadcast({
+              type: 'accounts_update',
+              data: { op: 'add', email, account: { email, refreshToken: '***', projectId: '', addedAt: Date.now(), lastUsed: Date.now() } },
+              timestamp: Date.now()
+            });
+
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(`
+                            <!DOCTYPE html><html><head><title>Success</title><style>body{font-family:sans-serif;background:#0f172a;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh}</style></head>
+                            <body><div style="text-align:center"><h1>Authentication Successful</h1><p>Account ${email} added.</p><script>setTimeout(() => window.close(), 2000)</script></div></body></html>
+                        `);
+
+            // Close server after short delay
+            setTimeout(() => {
+              if (activeAuthServer) {
+                activeAuthServer.close();
+                activeAuthServer = null;
+              }
+            }, 5000);
+
+          } catch (e: any) {
+            res.writeHead(500, { 'Content-Type': 'text/html' });
+            res.end(`
+                            <!DOCTYPE html><html><head><title>Error</title><style>body{font-family:sans-serif;background:#0f172a;color:#f87171;display:flex;justify-content:center;align-items:center;height:100vh}</style></head>
+                            <body><div style="text-align:center"><h1>Authentication Failed</h1><p>${e.message}</p></div></body></html>
+                        `);
+          }
+        } else {
+          res.writeHead(404);
+          res.end('Not Found');
+        }
+      });
+
+      activeAuthServer.listen(51121, () => {
+        console.log('Temporary auth server listening on port 51121');
+      });
+
+      activeAuthServer.on('error', (err: any) => {
+        console.error('Auth server error:', err);
+        // If address in use, we just assume another instance (or the script) is running and user might use that? 
+        // But best to reset
+        try { activeAuthServer?.close(); } catch { }
+        activeAuthServer = null;
+      });
+    }
+
+    res.json({ success: true, url: authUrl.toString() });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -397,21 +543,21 @@ app.post('/api/accounts/quota/clear-cache', async (req, res) => {
 app.post('/api/accounts', async (req, res) => {
   try {
     const payload: AddAccountPayload = req.body;
-    
+
     if (!payload.email || !payload.refreshToken) {
       res.status(400).json({ success: false, error: 'Email and refreshToken are required' });
       return;
     }
-    
+
     const account = await accountsService.addAccount(payload);
-    
+
     // Broadcast update via WebSocket
     wsManager.broadcast({
       type: 'accounts_update',
       data: { op: 'add', email: account.email, account },
       timestamp: Date.now()
     });
-    
+
     res.json({ success: true, data: account });
   } catch (error: any) {
     res.status(400).json({ success: false, error: error.message });
@@ -423,14 +569,14 @@ app.delete('/api/accounts/:email', async (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email);
     await accountsService.removeAccount(email);
-    
+
     // Broadcast update via WebSocket
     wsManager.broadcast({
       type: 'accounts_update',
       data: { op: 'remove', email },
       timestamp: Date.now()
     });
-    
+
     res.json({ success: true });
   } catch (error: any) {
     res.status(400).json({ success: false, error: error.message });
@@ -441,21 +587,21 @@ app.delete('/api/accounts/:email', async (req, res) => {
 app.delete('/api/accounts', async (req, res) => {
   try {
     const { emails } = req.body;
-    
+
     if (!Array.isArray(emails) || emails.length === 0) {
       res.status(400).json({ success: false, error: 'Array of emails required' });
       return;
     }
-    
+
     await accountsService.removeAccounts(emails);
-    
+
     // Broadcast update via WebSocket
     wsManager.broadcast({
       type: 'accounts_update',
       data: { op: 'bulk_remove', emails },
       timestamp: Date.now()
     });
-    
+
     res.json({ success: true, deleted: emails.length });
   } catch (error: any) {
     res.status(400).json({ success: false, error: error.message });
@@ -467,14 +613,14 @@ app.post('/api/accounts/switch/:email', async (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email);
     await accountsService.setActiveAccount(email);
-    
+
     // Broadcast update via WebSocket
     wsManager.broadcast({
       type: 'accounts_update',
       data: { op: 'active_changed', email },
       timestamp: Date.now()
     });
-    
+
     res.json({ success: true, activeAccount: email });
   } catch (error: any) {
     res.status(400).json({ success: false, error: error.message });
@@ -485,7 +631,7 @@ app.post('/api/accounts/switch/:email', async (req, res) => {
 app.get('/api/accounts/best', (req, res) => {
   try {
     const quotas = quotaService.getCachedQuotas();
-    
+
     // Build quota map
     const quotaMap = new Map<string, { claudePercent: number; geminiPercent: number }>();
     for (const q of quotas) {
@@ -494,7 +640,7 @@ app.get('/api/accounts/best', (req, res) => {
         geminiPercent: q.geminiQuotaPercent ?? 0
       });
     }
-    
+
     const best = accountsService.getBestAccounts(quotaMap);
     res.json({ success: true, data: best });
   } catch (error: any) {
@@ -507,37 +653,37 @@ app.get('/api/accounts/summary', (req, res) => {
   try {
     const accounts = accountsService.getAccounts();
     const quotas = quotaService.getCachedQuotas();
-    
+
     let geminiTotal = 0, geminiCount = 0;
     let geminiImageTotal = 0, geminiImageCount = 0;
     let claudeTotal = 0, claudeCount = 0;
     let lowQuotaCount = 0;
     let rateLimitedCount = 0;
     let exhaustedCount = 0;
-    
+
     let geminiMin = 100, claudeMin = 100, geminiImageMin = 100;
-    
+
     for (const quota of quotas) {
       const account = accounts.find(a => a.email === quota.email);
-      
+
       const isClaudeRateLimited = account?.rateLimits?.claude && !account.rateLimits.claude.isExpired;
       const isGeminiRateLimited = account?.rateLimits?.gemini && !account.rateLimits.gemini.isExpired;
-      
+
       if (quota.geminiQuotaPercent !== null) {
         const effectiveGemini = isGeminiRateLimited ? 0 : quota.geminiQuotaPercent;
         geminiTotal += effectiveGemini;
         geminiCount++;
         geminiMin = Math.min(geminiMin, effectiveGemini);
       }
-      
+
       if (quota.claudeQuotaPercent !== null) {
         const effectiveClaude = isClaudeRateLimited ? 0 : quota.claudeQuotaPercent;
         claudeTotal += effectiveClaude;
         claudeCount++;
         claudeMin = Math.min(claudeMin, effectiveClaude);
       }
-      
-      const imageModel = quota.models.find(m => 
+
+      const imageModel = quota.models.find(m =>
         m.modelName.toLowerCase().includes('image')
       );
       if (imageModel) {
@@ -545,24 +691,24 @@ app.get('/api/accounts/summary', (req, res) => {
         geminiImageCount++;
         geminiImageMin = Math.min(geminiImageMin, imageModel.remainingPercent);
       }
-      
+
       if (isClaudeRateLimited || isGeminiRateLimited) {
         rateLimitedCount++;
       }
-      
+
       const isClaudeExhausted = !isClaudeRateLimited && quota.claudeQuotaPercent !== null && quota.claudeQuotaPercent === 0;
       const isGeminiExhausted = !isGeminiRateLimited && quota.geminiQuotaPercent !== null && quota.geminiQuotaPercent === 0;
-      
+
       if (isClaudeExhausted || isGeminiExhausted) {
         exhaustedCount++;
       }
-      
-      const hasLowQuota = 
+
+      const hasLowQuota =
         (!isClaudeRateLimited && quota.claudeQuotaPercent !== null && quota.claudeQuotaPercent < 20 && quota.claudeQuotaPercent > 0) ||
         (!isGeminiRateLimited && quota.geminiQuotaPercent !== null && quota.geminiQuotaPercent < 20 && quota.geminiQuotaPercent > 0);
       if (hasLowQuota) lowQuotaCount++;
     }
-    
+
     res.json({
       success: true,
       data: {
@@ -658,11 +804,11 @@ app.get('/api/accounts/limits', async (req, res) => {
     const quotas = quotaService.getCachedQuotas();
     const accounts = accountsService.getAccounts();
     const format = req.query.format as string || 'json';
-    
+
     // Build account limits with rate limit info from accounts service
     const accountLimits = quotas.map(quota => {
       const account = accounts.find(a => a.email === quota.email);
-      
+
       return {
         email: quota.email,
         status: quota.fetchError ? 'error' : 'ok',
@@ -824,7 +970,7 @@ app.get('/api/accounts/quota-windows', (req, res) => {
         }
       }
     }
-    
+
     // Build response
     const models = modelDefs.map(def => {
       const agg = modelAggregates[def.id];
@@ -834,7 +980,7 @@ app.get('/api/accounts/quota-windows', (req, res) => {
       const earliestReset = agg.resetTimes.length > 0
         ? Math.min(...agg.resetTimes)
         : null;
-      
+
       return {
         id: def.id,
         displayName: def.displayName,
@@ -844,17 +990,17 @@ app.get('/api/accounts/quota-windows', (req, res) => {
         accountCount: Math.floor(agg.accountCount / def.patterns.length), // Approximate unique accounts
       };
     }).filter(m => m.accountCount > 0 || m.percentage > 0);
-    
+
     // Calculate overall average
     const allPercentages = models.map(m => m.percentage).filter(p => p > 0);
     const averageQuota = allPercentages.length > 0
       ? Math.round(allPercentages.reduce((a, b) => a + b, 0) / allPercentages.length)
       : 0;
-    
+
     // Find next reset time
     const allResetTimes = models.map(m => m.resetTime).filter((t): t is number => t !== null);
     const nextReset = allResetTimes.length > 0 ? Math.min(...allResetTimes) : null;
-    
+
     res.json({
       success: true,
       data: {
@@ -875,36 +1021,36 @@ app.get('/api/accounts/quota-window-status', (req, res) => {
     const quotas = quotaService.getCachedQuotas();
     const now = Date.now();
     const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
-    
+
     // Helper to calculate window info for a model family
     const calculateWindowInfo = (
       family: 'claude' | 'gemini',
       familyQuotas: Array<{ percent: number; resetTime: number | null; email: string }>
     ): import('./types').QuotaWindowInfo | null => {
       const validQuotas = familyQuotas.filter(q => q.resetTime !== null && q.resetTime > now);
-      
+
       if (validQuotas.length === 0) return null;
-      
+
       // Use earliest reset time across all accounts
       const resetTimes = validQuotas.map(q => q.resetTime!).filter(t => t > now);
       if (resetTimes.length === 0) return null;
-      
+
       const windowEnd = Math.min(...resetTimes);
       const windowStart = windowEnd - FIVE_HOURS_MS;
-      
+
       // Calculate progress through the window
       const elapsed = now - windowStart;
       const progressPercent = Math.max(0, Math.min(100, (elapsed / FIVE_HOURS_MS) * 100));
       const remainingMs = Math.max(0, windowEnd - now);
-      
+
       // Average quota across accounts
       const avgQuota = validQuotas.length > 0
         ? Math.round(validQuotas.reduce((sum, q) => sum + q.percent, 0) / validQuotas.length)
         : 0;
-      
+
       // Calculate burn rate from quota snapshots (will be enhanced in Phase 4)
       const burnRate = monitor.calculateBurnRateFromSnapshots(family);
-      
+
       // Estimate exhaustion time
       let estimatedExhaustion: string | null = null;
       if (burnRate !== null && burnRate > 0 && avgQuota > 0) {
@@ -919,7 +1065,7 @@ app.get('/api/accounts/quota-window-status', (req, res) => {
           estimatedExhaustion = null; // Stable
         }
       }
-      
+
       return {
         family,
         windowStart,
@@ -933,11 +1079,11 @@ app.get('/api/accounts/quota-window-status', (req, res) => {
         estimatedExhaustion,
       };
     };
-    
+
     // Gather Claude and Gemini quotas
     const claudeQuotas: Array<{ percent: number; resetTime: number | null; email: string }> = [];
     const geminiQuotas: Array<{ percent: number; resetTime: number | null; email: string }> = [];
-    
+
     for (const quota of quotas) {
       if (quota.claudeQuotaPercent !== null) {
         claudeQuotas.push({
@@ -954,10 +1100,10 @@ app.get('/api/accounts/quota-window-status', (req, res) => {
         });
       }
     }
-    
+
     const claudeWindow = calculateWindowInfo('claude', claudeQuotas);
     const geminiWindow = calculateWindowInfo('gemini', geminiQuotas);
-    
+
     res.json({
       success: true,
       data: {
@@ -977,16 +1123,16 @@ app.post('/api/accounts/:email/refresh', async (req, res) => {
     const email = decodeURIComponent(req.params.email);
     const rawAccounts = getRawAccountsForQuota();
     const account = rawAccounts.find(a => a.email.toLowerCase() === email.toLowerCase());
-    
+
     if (!account) {
       res.status(404).json({ success: false, error: 'Account not found' });
       return;
     }
-    
+
     // Force refresh quota for this specific account
     const quotas = await quotaService.fetchAllQuotas([account]);
     const quota = quotas.find(q => q.email.toLowerCase() === email.toLowerCase());
-    
+
     res.json({ success: true, data: quota });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -997,18 +1143,18 @@ app.get('/api/accounts/burn-rate', (req, res) => {
   try {
     const accounts = accountsService.getAccounts();
     const quotas = quotaService.getCachedQuotas();
-    
+
     const burnRates = accounts.map(acc => {
       const stats = monitor.getAccountBurnRateDetailed(acc.email);
       const quota = quotas.find(q => q.email === acc.email);
-      
-      const claudeTotal = (quota?.claudeQuotaPercent && quota?.claudeQuotaPercent > 0) 
-        ? (stats.claudeTokens1h / (1 - quota.claudeQuotaPercent/100)) // Very rough estimate if we don't know max
+
+      const claudeTotal = (quota?.claudeQuotaPercent && quota?.claudeQuotaPercent > 0)
+        ? (stats.claudeTokens1h / (1 - quota.claudeQuotaPercent / 100)) // Very rough estimate if we don't know max
         : 1000000; // Fallback to 1M tokens if unknown
-        
+
       // Better way: use remainingFraction from API if we had it directly here
       // But for now, let's just return the raw tokens and let frontend handle % if it has quota info
-      
+
       return {
         email: acc.email,
         claudeTokens1h: stats.claudeTokens1h || 0,
@@ -1019,7 +1165,7 @@ app.get('/api/accounts/burn-rate', (req, res) => {
         geminiResetTime: quota?.geminiResetTime
       };
     });
-    
+
     res.json({ success: true, data: burnRates });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -1030,27 +1176,27 @@ app.get('/api/accounts/burn-rate', (req, res) => {
 app.get('/api/accounts/burn-rate-accurate', (req, res) => {
   try {
     const quotas = quotaService.getCachedQuotas();
-    
+
     // Calculate average quota percent for each family
     const claudeQuotas = quotas.filter(q => q.claudeQuotaPercent !== null);
     const geminiQuotas = quotas.filter(q => q.geminiQuotaPercent !== null);
-    
+
     const avgClaudePercent = claudeQuotas.length > 0
       ? claudeQuotas.reduce((sum, q) => sum + (q.claudeQuotaPercent || 0), 0) / claudeQuotas.length
       : null;
-    
+
     const avgGeminiPercent = geminiQuotas.length > 0
       ? geminiQuotas.reduce((sum, q) => sum + (q.geminiQuotaPercent || 0), 0) / geminiQuotas.length
       : null;
-    
-    const claudeBurnRate = avgClaudePercent !== null 
+
+    const claudeBurnRate = avgClaudePercent !== null
       ? monitor.getAccurateBurnRate('claude', avgClaudePercent)
       : null;
-    
+
     const geminiBurnRate = avgGeminiPercent !== null
       ? monitor.getAccurateBurnRate('gemini', avgGeminiPercent)
       : null;
-    
+
     res.json({
       success: true,
       data: {
@@ -1088,13 +1234,13 @@ app.get('/api/logs/combined', (req, res) => {
       limit: req.query.limit ? parseInt(req.query.limit as string) : 100,
       offset: req.query.offset ? parseInt(req.query.offset as string) : 0,
     };
-    
+
     const logs = monitor.getCombinedLogs(filters);
-    
+
     // Get total count for pagination (without limit/offset)
     const countFilters = { ...filters, limit: undefined, offset: undefined };
     const totalLogs = monitor.getCombinedLogs({ ...countFilters, limit: 10000, offset: 0 });
-    
+
     res.json({ success: true, data: logs, total: totalLogs.length });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -1118,13 +1264,13 @@ app.get('/api/logs/file/:filename', (req, res) => {
     const search = req.query.search as string | undefined;
     const level = req.query.level as import('./types').LogLevel | undefined;
     const category = req.query.category as import('./types').LogCategory | undefined;
-    
+
     // Validate filename to prevent directory traversal
     if (!filename.match(/^\d{4}-\d{2}-\d{2}\.log$/)) {
       res.status(400).json({ success: false, error: 'Invalid filename format' });
       return;
     }
-    
+
     const entries = fileLogger.readLogFile(filename, { tail, search, level, category });
     res.json({ success: true, data: entries });
   } catch (error: any) {
@@ -1205,8 +1351,8 @@ if (process.env.NODE_ENV === 'development' || process.env.DEV_MODE === 'true') {
           details: i % 3 === 0
             ? JSON.stringify({ from: accounts[0].email, reason: 'rate_limited' })
             : i % 3 === 1
-            ? JSON.stringify({ recovered: true })
-            : JSON.stringify({ percent: 10 })
+              ? JSON.stringify({ recovered: true })
+              : JSON.stringify({ percent: 10 })
         });
       }
 
@@ -1383,8 +1529,8 @@ app.get('/api/language-server/detect', async (req, res) => {
     const verbose = req.query.verbose === 'true';
     const connected = await languageServerService.connect(verbose);
     const status = languageServerService.getStatus();
-    res.json({ 
-      success: connected, 
+    res.json({
+      success: connected,
       data: status,
       message: connected ? 'Language Server detected' : 'Language Server not found'
     });
@@ -1396,13 +1542,13 @@ app.get('/api/language-server/detect', async (req, res) => {
 app.get('/api/language-server/credits', async (req, res) => {
   try {
     const snapshot = languageServerService.getCachedSnapshot();
-    
+
     if (!snapshot) {
       // Try to fetch fresh data
       const freshSnapshot = await languageServerService.fetchQuota();
       if (freshSnapshot) {
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           data: {
             tokenUsage: freshSnapshot.tokenUsage,
             promptCredits: freshSnapshot.promptCredits,
@@ -1412,17 +1558,17 @@ app.get('/api/language-server/credits', async (req, res) => {
         });
         return;
       }
-      
-      res.json({ 
-        success: false, 
+
+      res.json({
+        success: false,
         error: 'Language Server not connected',
         data: null
       });
       return;
     }
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       data: {
         tokenUsage: snapshot.tokenUsage,
         promptCredits: snapshot.promptCredits,
@@ -1438,7 +1584,7 @@ app.get('/api/language-server/credits', async (req, res) => {
 app.get('/api/language-server/user', async (req, res) => {
   try {
     const userInfo = languageServerService.getUserInfo();
-    
+
     if (!userInfo) {
       // Try to fetch fresh data
       const snapshot = await languageServerService.fetchQuota();
@@ -1446,15 +1592,15 @@ app.get('/api/language-server/user', async (req, res) => {
         res.json({ success: true, data: snapshot.userInfo });
         return;
       }
-      
-      res.json({ 
-        success: false, 
+
+      res.json({
+        success: false,
         error: 'Language Server not connected or no user info available',
         data: null
       });
       return;
     }
-    
+
     res.json({ success: true, data: userInfo });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -1464,20 +1610,20 @@ app.get('/api/language-server/user', async (req, res) => {
 app.get('/api/language-server/snapshot', async (req, res) => {
   try {
     let snapshot = languageServerService.getCachedSnapshot();
-    
+
     if (!snapshot) {
       snapshot = await languageServerService.fetchQuota();
     }
-    
+
     if (!snapshot) {
-      res.json({ 
-        success: false, 
+      res.json({
+        success: false,
         error: 'Language Server not connected',
         data: null
       });
       return;
     }
-    
+
     res.json({ success: true, data: snapshot });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -1487,16 +1633,16 @@ app.get('/api/language-server/snapshot', async (req, res) => {
 app.post('/api/language-server/refresh', async (req, res) => {
   try {
     const snapshot = await languageServerService.forceRefresh();
-    
+
     if (!snapshot) {
-      res.json({ 
-        success: false, 
+      res.json({
+        success: false,
         error: 'Failed to connect to Language Server',
         data: null
       });
       return;
     }
-    
+
     res.json({ success: true, data: snapshot });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -1795,13 +1941,13 @@ app.get('/api/quota-groups/:modelId', (req, res) => {
     const label = req.query.label as string | undefined;
     const group = quotaStrategyManager.getGroupForModel(modelId, label);
     const displayName = quotaStrategyManager.getModelDisplayName(modelId, label);
-    res.json({ 
-      success: true, 
-      data: { 
-        group, 
+    res.json({
+      success: true,
+      data: {
+        group,
         displayName,
         family: quotaStrategyManager.getFamily(modelId)
-      } 
+      }
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -1815,10 +1961,10 @@ app.get('/api/quota-groups/:modelId', (req, res) => {
 app.get('/api/analytics/prediction', (req, res) => {
   try {
     const email = req.query.email as string | undefined;
-    
+
     // Get quota data for the account(s)
     const quotas = quotaService.getCachedQuotas();
-    
+
     if (email) {
       // Single account prediction
       const quota = quotas.find(q => q.email === email);
@@ -1826,7 +1972,7 @@ app.get('/api/analytics/prediction', (req, res) => {
         quota?.claudeQuotaPercent ?? null,
         quota?.geminiQuotaPercent ?? null
       );
-      
+
       res.json({
         success: true,
         data: {
@@ -1843,12 +1989,12 @@ app.get('/api/analytics/prediction', (req, res) => {
       const geminiQuotas = quotas
         .map(q => q.geminiQuotaPercent)
         .filter((p): p is number => p !== null);
-      
+
       const minClaude = claudeQuotas.length > 0 ? Math.min(...claudeQuotas) : null;
       const minGemini = geminiQuotas.length > 0 ? Math.min(...geminiQuotas) : null;
-      
+
       const predictions = monitor.getAllRunwayPredictions(minClaude, minGemini);
-      
+
       res.json({
         success: true,
         data: {
@@ -1867,14 +2013,14 @@ app.get('/api/analytics/prediction', (req, res) => {
 
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[Server] Unhandled error:', err);
-  fileLogger.error('system', 'Unhandled API error', { 
-    path: req.path, 
+  fileLogger.error('system', 'Unhandled API error', {
+    path: req.path,
     method: req.method,
-    error: err.message 
+    error: err.message
   });
-  res.status(500).json({ 
-    success: false, 
-    error: 'Internal server error' 
+  res.status(500).json({
+    success: false,
+    error: 'Internal server error'
   });
 });
 
@@ -1916,7 +2062,7 @@ quotaService.on('quotas_updated', (quotas: Array<import('./services/quotaService
       monitor.recordQuotaSnapshot(quota.email, 'gemini', quota.geminiQuotaPercent, quota.geminiResetTime);
     }
   }
-  
+
   // Log quota update
   const claudeQuotas = quotas.filter(q => q.claudeQuotaPercent !== null);
   const geminiQuotas = quotas.filter(q => q.geminiQuotaPercent !== null);
@@ -1925,10 +2071,10 @@ quotaService.on('quotas_updated', (quotas: Array<import('./services/quotaService
     claudeAvg: claudeQuotas.length > 0 ? Math.round(claudeQuotas.reduce((sum, q) => sum + (q.claudeQuotaPercent || 0), 0) / claudeQuotas.length) : null,
     geminiAvg: geminiQuotas.length > 0 ? Math.round(geminiQuotas.reduce((sum, q) => sum + (q.geminiQuotaPercent || 0), 0) / geminiQuotas.length) : null,
   });
-  
+
   // Cleanup old snapshots (keep last 24h)
   monitor.cleanupOldSnapshots(24);
-  
+
   wsManager.broadcastNow({
     type: 'config_update',
     data: { quotas },
@@ -1958,7 +2104,7 @@ languageServerService.on('disconnected', (reason) => {
 languageServerService.on('quota_update', (snapshot) => {
   wsManager.broadcastNow({
     type: 'config_update',
-    data: { 
+    data: {
       languageServerSnapshot: snapshot,
       credits: snapshot.tokenUsage,
       userInfo: snapshot.userInfo

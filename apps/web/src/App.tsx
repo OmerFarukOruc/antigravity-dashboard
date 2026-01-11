@@ -88,7 +88,7 @@ function App() {
     return <AuthPrompt onLogin={setToken} error={authError} />;
   }
 
-  if (initialLoading || localAccounts.length === 0) {
+  if (initialLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="text-center">
