@@ -35,8 +35,5 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
-  },
-  "dependencies": {
-    "opencode-antigravity-auth": "^1.2.8"
   }
 }

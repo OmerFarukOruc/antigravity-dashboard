@@ -395,9 +395,11 @@ app.post('/api/accounts/quota/clear-cache', async (req, res) => {
 
 // ==================== Google OAuth Flow ====================
 
-const CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
-const CLIENT_SECRET = "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";
-const OAUTH_REDIRECT_URI = "http://localhost:51121/oauth-callback";
+// Use environment variables (same credentials as quotaService)
+const getOAuthClientId = () => process.env.GOOGLE_CLIENT_ID;
+const getOAuthClientSecret = () => process.env.GOOGLE_CLIENT_SECRET;
+const OAUTH_CALLBACK_PORT = 51121;
+const OAUTH_REDIRECT_URI = `http://localhost:${OAUTH_CALLBACK_PORT}/oauth-callback`;
 const OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/cloud-platform",
   "https://www.googleapis.com/auth/userinfo.email",
@@ -419,17 +421,38 @@ function sha256(buffer: Buffer): Buffer {
   return crypto.createHash('sha256').update(buffer).digest();
 }
 
+// Store pending auth sessions: state -> { verifier, createdAt }
+const pendingAuthSessions = new Map<string, { verifier: string; createdAt: number }>();
+const AUTH_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+// Cleanup expired sessions periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [state, session] of pendingAuthSessions) {
+    if (now - session.createdAt > AUTH_SESSION_TTL_MS) {
+      pendingAuthSessions.delete(state);
+    }
+  }
+}, 60 * 1000);
+
 let activeAuthServer: ReturnType<typeof createServer> | null = null;
-let currentVerifier: string | null = null;
 
 app.get('/api/auth/google/url', (req, res) => {
   try {
+    const clientId = getOAuthClientId();
+    if (!clientId) {
+      res.status(500).json({ success: false, error: 'GOOGLE_CLIENT_ID not configured' });
+      return;
+    }
+
+    const state = base64URLEncode(crypto.randomBytes(16));
     const verifier = base64URLEncode(crypto.randomBytes(32));
     const challenge = base64URLEncode(sha256(Buffer.from(verifier)));
-    currentVerifier = verifier;
+
+    pendingAuthSessions.set(state, { verifier, createdAt: Date.now() });
 
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-    authUrl.searchParams.append('client_id', CLIENT_ID);
+    authUrl.searchParams.append('client_id', clientId);
     authUrl.searchParams.append('redirect_uri', OAUTH_REDIRECT_URI);
     authUrl.searchParams.append('response_type', 'code');
     authUrl.searchParams.append('scope', OAUTH_SCOPES.join(' '));
@@ -437,26 +460,39 @@ app.get('/api/auth/google/url', (req, res) => {
     authUrl.searchParams.append('prompt', 'consent');
     authUrl.searchParams.append('code_challenge', challenge);
     authUrl.searchParams.append('code_challenge_method', 'S256');
+    authUrl.searchParams.append('state', state);
 
-    // Start temporary server if not running
     if (!activeAuthServer) {
       activeAuthServer = createServer(async (req, res) => {
         const parsedUrl = new URL(req.url || '', `http://${req.headers.host}`);
 
         if (parsedUrl.pathname === '/oauth-callback') {
           const code = parsedUrl.searchParams.get('code');
-          try {
-            if (!code) throw new Error('No code received');
+          const returnedState = parsedUrl.searchParams.get('state');
 
-            // Exchange code
+          try {
+            if (!code) throw new Error('No authorization code received');
+            if (!returnedState) throw new Error('No state parameter received');
+
+            const session = pendingAuthSessions.get(returnedState);
+            if (!session) throw new Error('Invalid or expired auth session');
+
+            pendingAuthSessions.delete(returnedState);
+
+            const clientId = getOAuthClientId();
+            const clientSecret = getOAuthClientSecret();
+            if (!clientId || !clientSecret) {
+              throw new Error('OAuth credentials not configured');
+            }
+
             const tokenUrl = 'https://oauth2.googleapis.com/token';
             const params = new URLSearchParams();
-            params.append('client_id', CLIENT_ID);
-            params.append('client_secret', CLIENT_SECRET);
+            params.append('client_id', clientId);
+            params.append('client_secret', clientSecret);
             params.append('code', code);
             params.append('grant_type', 'authorization_code');
             params.append('redirect_uri', OAUTH_REDIRECT_URI);
-            params.append('code_verifier', currentVerifier || '');
+            params.append('code_verifier', session.verifier);
 
             const response = await fetch(tokenUrl, {
               method: 'POST',
@@ -466,25 +502,29 @@ app.get('/api/auth/google/url', (req, res) => {
 
             const tokens = await response.json() as any;
             if (!response.ok) {
-              throw new Error(`Token exchange failed: ${JSON.stringify(tokens)}`);
+              throw new Error(`Token exchange failed: ${tokens.error_description || tokens.error || 'Unknown error'}`);
             }
 
-            // Save account
-            // Extract email from ID token
+            if (!tokens.refresh_token) {
+              throw new Error('No refresh token received. Please revoke app access at https://myaccount.google.com/permissions and try again.');
+            }
+
             let email = 'unknown_user';
             if (tokens.id_token) {
-              const payload = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64').toString());
-              if (payload.email) email = payload.email;
+              try {
+                const payload = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64').toString());
+                if (payload.email) email = payload.email;
+              } catch {
+                console.warn('[OAuth] Failed to parse id_token');
+              }
             }
 
-            // Add to accounts service
             await accountsService.addAccount({
               email,
               refreshToken: tokens.refresh_token,
-              projectId: '' // Optional, can be updated later
+              projectId: ''
             });
 
-            // Broadcast update
             wsManager.broadcast({
               type: 'accounts_update',
               data: { op: 'add', email, account: { email, refreshToken: '***', projectId: '', addedAt: Date.now(), lastUsed: Date.now() } },
@@ -492,12 +532,8 @@ app.get('/api/auth/google/url', (req, res) => {
             });
 
             res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(`
-                            <!DOCTYPE html><html><head><title>Success</title><style>body{font-family:sans-serif;background:#0f172a;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh}</style></head>
-                            <body><div style="text-align:center"><h1>Authentication Successful</h1><p>Account ${email} added.</p><script>setTimeout(() => window.close(), 2000)</script></div></body></html>
-                        `);
+            res.end(`<!DOCTYPE html><html><head><title>Success</title><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}</style></head><body><div style="text-align:center"><h1 style="color:#4ade80">Authentication Successful</h1><p>Account ${email} added.</p><script>setTimeout(()=>window.close(),2000)</script></div></body></html>`);
 
-            // Close server after short delay
             setTimeout(() => {
               if (activeAuthServer) {
                 activeAuthServer.close();
@@ -506,11 +542,8 @@ app.get('/api/auth/google/url', (req, res) => {
             }, 5000);
 
           } catch (e: any) {
-            res.writeHead(500, { 'Content-Type': 'text/html' });
-            res.end(`
-                            <!DOCTYPE html><html><head><title>Error</title><style>body{font-family:sans-serif;background:#0f172a;color:#f87171;display:flex;justify-content:center;align-items:center;height:100vh}</style></head>
-                            <body><div style="text-align:center"><h1>Authentication Failed</h1><p>${e.message}</p></div></body></html>
-                        `);
+            res.writeHead(400, { 'Content-Type': 'text/html' });
+            res.end(`<!DOCTYPE html><html><head><title>Error</title><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#f87171;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}</style></head><body><div style="text-align:center;max-width:400px"><h1>Authentication Failed</h1><p>${e.message}</p></div></body></html>`);
           }
         } else {
           res.writeHead(404);
@@ -518,14 +551,12 @@ app.get('/api/auth/google/url', (req, res) => {
         }
       });
 
-      activeAuthServer.listen(51121, () => {
-        console.log('Temporary auth server listening on port 51121');
+      activeAuthServer.listen(OAUTH_CALLBACK_PORT, () => {
+        console.log(`[OAuth] Callback server listening on port ${OAUTH_CALLBACK_PORT}`);
       });
 
       activeAuthServer.on('error', (err: any) => {
-        console.error('Auth server error:', err);
-        // If address in use, we just assume another instance (or the script) is running and user might use that? 
-        // But best to reset
+        console.error('[OAuth] Callback server error:', err.message);
         try { activeAuthServer?.close(); } catch { }
         activeAuthServer = null;
       });
