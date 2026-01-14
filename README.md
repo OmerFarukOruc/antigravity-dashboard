@@ -394,22 +394,18 @@ antigravity-dashboard/
 
 ### Migrating from npm to pnpm
 
-If you previously used npm with this project:
+If you previously used npm with this project, see the **[Migration Guide](MIGRATION.md)** for:
+- Step-by-step migration instructions
+- Complete npm to pnpm command mapping
+- IDE/tooling setup (VS Code, WebStorm)
+- Common issues and solutions
+- Troubleshooting procedures
+
+**Quick migration:**
 
 ```bash
-# 1. Remove npm artifacts
-rm -rf node_modules
-rm -rf apps/*/node_modules
-rm -f package-lock.json apps/*/package-lock.json
-
-# 2. Install pnpm (if not already installed)
-corepack enable && corepack prepare pnpm@latest --activate
-# OR: npm install -g pnpm
-
-# 3. Install dependencies with pnpm
+rm -rf node_modules apps/*/node_modules package-lock.json
 pnpm install
-
-# 4. Verify the setup
 pnpm run build
 ```
 
@@ -422,12 +418,6 @@ pnpm run build
 | `npm install <pkg>` | `pnpm add <pkg>` |
 | `npm install -D <pkg>` | `pnpm add -D <pkg>` |
 | `package-lock.json` | `pnpm-lock.yaml` |
-
-**Why pnpm?**
-- **Faster installs** - Content-addressable storage with hard links
-- **Disk efficient** - Packages stored once globally, linked per project
-- **Strict dependencies** - Only declared dependencies are accessible
-- **Better monorepo support** - Native workspace protocol
 
 ## License
 
