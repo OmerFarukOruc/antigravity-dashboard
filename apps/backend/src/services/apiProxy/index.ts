@@ -1,6 +1,14 @@
 import { Response } from 'express';
 import { randomUUID } from 'crypto';
 
+function safeParseToolArgs(args: string): Record<string, unknown> {
+  try {
+    return JSON.parse(args);
+  } catch {
+    return { raw: args };
+  }
+}
+
 import {
   ClaudeRequest,
   ClaudeResponse,
@@ -385,7 +393,7 @@ export class ApiProxyService {
                       type: 'tool_use',
                       id: tc.id,
                       name: originalName,
-                      input: JSON.parse(tc.function.arguments),
+                      input: safeParseToolArgs(tc.function.arguments),
                     },
                   });
                   sendEvent({ type: 'content_block_stop', index: currentBlockIndex });

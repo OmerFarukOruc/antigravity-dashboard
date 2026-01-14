@@ -135,6 +135,14 @@ export class AntigravityClient {
         requestBody.model
       );
       const lineBuffer = getLineBuffer();
+      let bufferReleased = false;
+      
+      const safeReleaseBuffer = () => {
+        if (!bufferReleased) {
+          releaseLineBuffer(lineBuffer);
+          bufferReleased = true;
+        }
+      };
 
       try {
         const response = await fetch(ANTIGRAVITY_ENDPOINTS.stream, {
@@ -151,7 +159,7 @@ export class AntigravityClient {
           if (this.isRetryable(response.status) && attempt < this.config.maxRetries) {
             const delay = this.calculateRetryDelay(attempt, retryInfo?.retryAfter);
             console.log(`[AntigravityClient] Stream ${response.status} error, retrying in ${delay}ms (attempt ${attempt + 1}/${this.config.maxRetries})`);
-            releaseLineBuffer(lineBuffer);
+            safeReleaseBuffer();
             await sleep(delay);
             continue;
           }
@@ -186,7 +194,6 @@ export class AntigravityClient {
           reader.releaseLock();
         }
       } catch (error) {
-        releaseLineBuffer(lineBuffer);
         if (error instanceof ApiError) {
           lastError = error;
           if (!this.isRetryable(error.status) || attempt >= this.config.maxRetries) {
@@ -200,7 +207,7 @@ export class AntigravityClient {
           throw error;
         }
       } finally {
-        releaseLineBuffer(lineBuffer);
+        safeReleaseBuffer();
       }
     }
 

@@ -438,7 +438,9 @@ export class QuotaService extends EventEmitter {
       clearInterval(this.pollingInterval);
     }
 
-    this.fetchAllQuotas(getAccounts());
+    this.fetchAllQuotas(getAccounts()).catch(err => {
+      console.error('[QuotaService] Initial quota fetch failed:', err);
+    });
 
     this.pollingInterval = setInterval(async () => {
       const accounts = getAccounts();

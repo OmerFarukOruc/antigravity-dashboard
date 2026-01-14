@@ -153,6 +153,15 @@ export class AccountsFileService extends EventEmitter {
       const content = readFileSync(ACCOUNTS_FILE_PATH, 'utf-8');
       const data: RawAccountsFile = JSON.parse(content);
       
+      // Validate accounts array exists and is an array
+      if (!Array.isArray(data.accounts)) {
+        console.warn('[AccountsFileService] Malformed accounts file: accounts is not an array');
+        this.processedAccounts = [];
+        this.lastData = { ...data, accounts: [] };
+        this.emit('accounts_loaded', []);
+        return;
+      }
+      
       const previousAccounts = [...this.processedAccounts];
       this.processedAccounts = this.processAccounts(data);
       this.lastData = data;
@@ -167,6 +176,10 @@ export class AccountsFileService extends EventEmitter {
       console.log(`[AccountsFileService] Loaded ${this.processedAccounts.length} accounts`);
     } catch (error) {
       console.error('[AccountsFileService] Error loading accounts file:', error);
+      this.processedAccounts = [];
+      this.lastData = null;
+      this.emit('accounts_loaded', []);
+      this.emit('error', error);
     }
   }
 

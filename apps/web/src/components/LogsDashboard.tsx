@@ -51,7 +51,7 @@ export function LogsDashboard() {
         <select 
           className="bg-white/5 border border-white/10 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500/50"
           value={filters.type || 'all'}
-          onChange={(e) => updateFilters({ type: e.target.value as any })}
+          onChange={(e) => updateFilters({ type: e.target.value as 'api_call' | 'session_event' | 'all' })}
         >
           <option value="all">All Types</option>
           <option value="api_call">API Calls</option>

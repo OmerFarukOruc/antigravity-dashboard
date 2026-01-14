@@ -61,36 +61,40 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       
       switch (message.type) {
         case 'initial':
-          if (message.data.accounts) {
+          if (message.data?.accounts) {
             setLocalAccounts(message.data.accounts);
           }
-          if (message.data.stats) {
+          if (message.data?.stats) {
             setAccountsStats(message.data.stats);
           }
           setLastUpdate(message.timestamp);
           break;
           
         case 'accounts_update':
-          if (message.data.diffs) {
+          if (message.data?.diffs) {
             handleAccountsUpdate(message.data.diffs);
           }
           setLastUpdate(message.timestamp);
           break;
           
         case 'rate_limit_change':
-          const { email, family, cleared } = message.data;
-          if (cleared && preferences.notifyOnRateLimitClear) {
-            addNotification({
-              type: 'success',
-              title: 'Rate Limit Cleared',
-              message: `${email} is now available for ${family}`,
-            });
+          if (message.data) {
+            const { email, family, cleared } = message.data;
+            if (cleared && preferences.notifyOnRateLimitClear) {
+              addNotification({
+                type: 'success',
+                title: 'Rate Limit Cleared',
+                message: `${email} is now available for ${family}`,
+              });
+            }
           }
           setLastUpdate(message.timestamp);
           break;
           
         case 'stats_update':
-          setAccountsStats(message.data);
+          if (message.data) {
+            setAccountsStats(message.data);
+          }
           setLastUpdate(message.timestamp);
           break;
           

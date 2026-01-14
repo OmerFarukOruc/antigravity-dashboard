@@ -261,7 +261,7 @@ export function LogsPage() {
           <select 
             className="bg-white/5 border border-white/10 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500/50 min-w-[120px]"
             value={selectedType}
-            onChange={(e) => setSelectedType(e.target.value as any)}
+            onChange={(e) => setSelectedType(e.target.value as 'api_call' | 'session_event' | 'all')}
           >
             {TYPE_OPTIONS.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
