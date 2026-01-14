@@ -40,7 +40,7 @@ Multi-account Google Cloud quota monitor with Claude/OpenAI API proxy. npm works
 
 - **Types duplicated**: `apps/backend/src/types/` and `apps/web/src/types/` - manually sync
 - **Root .env only**: Backend loads from `../../../.env` relative to dist
-- **No ESLint**: Relies on TypeScript strict mode
+- **Linting**: oxlint (Rust-based, fast) - config in `.oxlintrc.json`, runs in CI
 - **Tailwind theming**: CSS variables in `apps/web/src/index.css`, config in `tailwind.config.js`
 
 ## ANTI-PATTERNS (THIS PROJECT)
@@ -62,15 +62,15 @@ Multi-account Google Cloud quota monitor with Claude/OpenAI API proxy. npm works
 ## COMMANDS
 
 ```bash
-npm install              # Install all workspaces
-npm run build            # Build backend + frontend
-npm start                # Start server (port 3456)
-npm run dev              # Dev mode with hot reload
-
-# Claude Code CLI integration
-export ANTHROPIC_BASE_URL=http://localhost:3456
-export ANTHROPIC_API_KEY=$(curl -s http://localhost:3456/api/proxy/api-key | jq -r '.apiKey')
+pnpm install             # Install all workspaces
+pnpm run build           # Build backend + frontend
+pnpm start               # Start server (port 3456)
+pnpm run dev             # Dev mode with hot reload
+pnpm run lint            # Run oxlint (fast Rust-based linter)
+pnpm run lint:fix        # Auto-fix lint issues
 ```
+
+
 
 ## NOTES
 
@@ -78,3 +78,29 @@ export ANTHROPIC_API_KEY=$(curl -s http://localhost:3456/api/proxy/api-key | jq 
 - WebSocket at `/ws` for live updates
 - SQLite tables: `api_calls`, `session_events`, `quota_snapshots`
 - Accounts file: `~/.config/opencode/antigravity-accounts.json`
+
+## Landing the Plane (Session Completion)
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   bd sync
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
+
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds

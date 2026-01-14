@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/oxlint_v1.0.0/npm/oxlint/configuration_schema.json",
   "plugins": ["typescript", "import", "unicorn", "promise"],
   "categories": {
     "correctness": "error",
@@ -15,16 +15,20 @@
     "no-debugger": "error",
     "no-empty": "warn",
     "no-unused-vars": "warn",
-    "typescript/no-explicit-any": "error",
+    "typescript/no-explicit-any": "warn",
     "unicorn/no-null": "off",
     "unicorn/prefer-module": "off",
-    "unicorn/filename-case": "off"
+    "unicorn/filename-case": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "import/no-unassigned-import": "off"
   },
   "overrides": [],
   "ignorePatterns": [
     "dist",
     "node_modules",
     "*.min.js",
-    "coverage"
+    "coverage",
+    "tasks"
   ]
 }

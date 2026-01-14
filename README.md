@@ -258,6 +258,12 @@ pnpm run dev
 # Start production server
 pnpm start
 
+# Run linting (oxlint - Rust-based, fast)
+pnpm run lint
+
+# Run linting with auto-fix
+pnpm run lint:fix
+
 # Run type checking
 pnpm run typecheck
 ```
