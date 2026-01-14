@@ -15,19 +15,12 @@
     "no-debugger": "error",
     "no-empty": "warn",
     "no-unused-vars": "warn",
-    "typescript/no-explicit-any": "warn",
+    "typescript/no-explicit-any": "error",
     "unicorn/no-null": "off",
     "unicorn/prefer-module": "off",
     "unicorn/filename-case": "off"
   },
-  "overrides": [
-    {
-      "files": ["**/*.test.ts", "**/*.spec.ts", "**/test/**"],
-      "rules": {
-        "no-console": "off"
-      }
-    }
-  ],
+  "overrides": [],
   "ignorePatterns": [
     "dist",
     "node_modules",
