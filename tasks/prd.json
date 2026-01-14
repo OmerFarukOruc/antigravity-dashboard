@@ -1,0 +1,191 @@
+{
+  "name": "Standardize on pnpm",
+  "branchName": "feature/standardize-pnpm",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Create pnpm workspace configuration",
+      "description": "As a developer, I want pnpm workspace configuration so that the repository properly manages workspaces with pnpm",
+      "acceptanceCriteria": [
+        "pnpm-workspace.yaml exists with packages: ['apps/*']",
+        "Workspace structure is compatible with existing apps/backend and apps/web layout",
+        "Configuration validated with `pnpm -r list`"
+      ],
+      "priority": 1,
+      "passes": true,
+      "dependsOn": [],
+      "completionNotes": "Completed by agent"
+    },
+    {
+      "id": "US-002",
+      "title": "Create pnpm configuration file",
+      "description": "As a developer, I want proper pnpm configuration so that dependency resolution and installation work correctly",
+      "acceptanceCriteria": [
+        ".npmrc file created with auto-install-peers=true",
+        ".npmrc includes strict-peer-dependencies=false",
+        "Configuration supports frozen lockfile for CI",
+        "shamefully-hoist=false (maintain pnpm's strict linking)"
+      ],
+      "priority": 1,
+      "passes": true,
+      "dependsOn": [],
+      "completionNotes": "Completed by agent"
+    },
+    {
+      "id": "US-003",
+      "title": "Update root package.json scripts for pnpm",
+      "description": "As a developer, I want package.json scripts to use pnpm commands so that builds and dev workflows work with pnpm",
+      "acceptanceCriteria": [
+        "build script uses `pnpm run build --filter=*`",
+        "dev script uses `pnpm run dev --filter=*`",
+        "start script uses `pnpm --filter=@antigravity/backend start`",
+        "All scripts tested and functional locally",
+        "Scripts documented in code comments if complex"
+      ],
+      "priority": 2,
+      "passes": true,
+      "dependsOn": [
+        "US-001",
+        "US-002"
+      ],
+      "completionNotes": "Completed by agent"
+    },
+    {
+      "id": "US-004",
+      "title": "Generate pnpm lockfile",
+      "description": "As a developer, I want a pnpm-lock.yaml file so that dependency versions are locked consistently",
+      "acceptanceCriteria": [
+        "node_modules directories removed (root and all workspaces)",
+        "package-lock.json removed from repository",
+        "`pnpm install` executed successfully",
+        "pnpm-lock.yaml generated and committed",
+        "Dependency resolution verified against npm version (no missing/unexpected packages)",
+        "Virtual store (.pnpm) created correctly"
+      ],
+      "priority": 2,
+      "passes": true,
+      "dependsOn": [
+        "US-001",
+        "US-002",
+        "US-003"
+      ],
+      "completionNotes": "Completed by agent"
+    },
+    {
+      "id": "US-005",
+      "title": "Update CI/CD pipeline for pnpm",
+      "description": "As a developer, I want CI/CD to use pnpm so that automated builds and tests run with the correct package manager",
+      "acceptanceCriteria": [
+        ".github/workflows/ci.yml updated with pnpm/action-setup@v2",
+        "pnpm version specified (e.g., version: 8)",
+        "Cache strategy changed from 'npm' to 'pnpm'",
+        "`npm ci` replaced with `pnpm install --frozen-lockfile`",
+        "All `npm run` commands changed to `pnpm run`",
+        "Workspace-specific commands use --filter flag",
+        "CI pipeline tested successfully on feature branch"
+      ],
+      "priority": 2,
+      "passes": true,
+      "dependsOn": [
+        "US-004"
+      ],
+      "completionNotes": "Completed by agent"
+    },
+    {
+      "id": "US-006",
+      "title": "Update .gitignore for pnpm",
+      "description": "As a developer, I want .gitignore to handle pnpm-specific files so that unnecessary files are not committed",
+      "acceptanceCriteria": [
+        ".gitignore updated with pnpm-specific entries if needed",
+        "pnpm-lock.yaml is tracked (not ignored)",
+        "package-lock.json exclusion verified",
+        ".pnpm-store/ ignored if present in repo root"
+      ],
+      "priority": 3,
+      "passes": true,
+      "dependsOn": [
+        "US-004"
+      ],
+      "completionNotes": "Completed by agent"
+    },
+    {
+      "id": "US-007",
+      "title": "Validate pnpm build process",
+      "description": "As a developer, I want to verify that pnpm build works so that the migration doesn't break builds",
+      "acceptanceCriteria": [
+        "`pnpm build` executes successfully",
+        "`pnpm --filter=@antigravity/backend typecheck` passes",
+        "`pnpm audit` runs successfully",
+        "`pnpm dev` workflow tested and functional",
+        "No node_modules hoisting issues detected",
+        "All workspace dependencies resolve correctly"
+      ],
+      "priority": 2,
+      "passes": true,
+      "dependsOn": [
+        "US-004",
+        "US-005"
+      ],
+      "completionNotes": "Completed by agent"
+    },
+    {
+      "id": "US-008",
+      "title": "Update README with pnpm installation instructions",
+      "description": "As a developer, I want clear pnpm setup documentation so that I can get started quickly",
+      "acceptanceCriteria": [
+        "README.md includes pnpm installation instructions (`npm install -g pnpm` or `corepack enable`)",
+        "Common pnpm commands documented (install, build, dev, test)",
+        "Workspace command examples with --filter syntax included",
+        "Migration from npm to pnpm explained for new contributors",
+        "Prerequisites section updated"
+      ],
+      "priority": 3,
+      "passes": true,
+      "dependsOn": [
+        "US-007"
+      ],
+      "completionNotes": "Completed by agent"
+    },
+    {
+      "id": "US-009",
+      "title": "Create migration guide for contributors",
+      "description": "As a contributor, I want a migration guide so that I can transition from npm to pnpm smoothly",
+      "acceptanceCriteria": [
+        "Migration guide created (MIGRATION.md or section in README)",
+        "Step-by-step instructions for existing contributors",
+        "npm to pnpm command mapping table documented (npm install → pnpm install, npm run → pnpm run, etc.)",
+        "Common issues and solutions included (e.g., peer dependency warnings)",
+        "IDE/tooling compatibility notes added (VSCode, WebStorm integration)",
+        "Troubleshooting section for clean install procedures"
+      ],
+      "priority": 3,
+      "passes": true,
+      "dependsOn": [
+        "US-008"
+      ],
+      "completionNotes": "Completed by agent"
+    },
+    {
+      "id": "US-010",
+      "title": "Verify CI builds on all Node versions",
+      "description": "As a developer, I want CI to pass on Node 18.x and 20.x so that compatibility is maintained",
+      "acceptanceCriteria": [
+        "CI builds pass on Node 18.x",
+        "CI builds pass on Node 20.x",
+        "All CI jobs (build, security audit, type checking) succeed",
+        "No regression in build times compared to baseline",
+        "Matrix strategy properly configured in CI workflow"
+      ],
+      "priority": 2,
+      "passes": true,
+      "dependsOn": [
+        "US-005",
+        "US-007"
+      ],
+      "completionNotes": "Completed by agent"
+    }
+  ],
+  "metadata": {
+    "updatedAt": "2026-01-14T08:20:02.322Z"
+  }
+}

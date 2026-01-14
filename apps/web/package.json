@@ -1,6 +1,6 @@
 {
   "name": "@antigravity/web",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "React frontend for Antigravity Dashboard - real-time quota monitoring UI",
   "private": true,
   "license": "MIT",

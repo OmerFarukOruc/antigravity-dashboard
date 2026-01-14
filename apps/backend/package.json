@@ -1,6 +1,6 @@
 {
   "name": "@antigravity/backend",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "Backend API server for Antigravity Dashboard - monitors Google Cloud quota and provides Claude/OpenAI compatible API proxy",
   "private": true,
   "main": "dist/index.js",
