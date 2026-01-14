@@ -429,6 +429,8 @@ export class QuotaService extends EventEmitter {
     return this.getCacheAge() > this.pollingMs;
   }
 
+  private pollingInFlight = false;
+
   startPolling(getAccounts: () => Array<{
     email: string;
     refreshToken: string;
@@ -438,12 +440,26 @@ export class QuotaService extends EventEmitter {
       clearInterval(this.pollingInterval);
     }
 
-    this.fetchAllQuotas(getAccounts());
+    this.pollingInFlight = true;
+    this.fetchAllQuotas(getAccounts()).then(() => {
+      this.pollingInFlight = false;
+    }).catch(err => {
+      console.error('[QuotaService] Initial quota fetch failed:', err);
+      this.pollingInFlight = false;
+    });
 
     this.pollingInterval = setInterval(async () => {
-      const accounts = getAccounts();
-      if (accounts.length > 0) {
-        await this.fetchAllQuotas(accounts);
+      if (this.pollingInFlight) return;
+      this.pollingInFlight = true;
+      try {
+        const accounts = getAccounts();
+        if (accounts.length > 0) {
+          await this.fetchAllQuotas(accounts);
+        }
+      } catch (err) {
+        console.error('[QuotaService] Polling quota fetch failed:', err);
+      } finally {
+        this.pollingInFlight = false;
       }
     }, this.pollingMs);
 
@@ -504,6 +520,15 @@ export class QuotaService extends EventEmitter {
   clearRateLimitState(): void {
     this.rateLimitState.clear();
     console.log('[QuotaService] Rate limit state cleared');
+  }
+
+  /**
+   * Get a valid access token for the given refresh token.
+   * Uses cached token if valid, otherwise refreshes from Google OAuth.
+   * This method encapsulates token caching and refresh logic.
+   */
+  async getAccessToken(refreshToken: string): Promise<string | null> {
+    return this.refreshAccessToken(refreshToken);
   }
 }
 

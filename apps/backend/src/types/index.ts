@@ -188,12 +188,12 @@ export interface FamilyBurnRate {
 
 export interface AccountBurnRate {
   email: string;
-  claude: FamilyBurnRate;
-  gemini: FamilyBurnRate;
-  overall: {
-    totalTokensUsed: number;
-    avgPercentPerHour: number;
-  };
+  claudeTokens1h: number;
+  geminiTokens1h: number;
+  claudeQuotaPercent?: number;
+  geminiQuotaPercent?: number;
+  claudeResetTime?: number;
+  geminiResetTime?: number;
 }
 
 // Timeline visualization types

@@ -3,6 +3,9 @@ import { Search, RefreshCw, FileText, Activity, AlertCircle, CheckCircle } from 
 import { format } from 'date-fns';
 import { useDashboardStore } from '../stores/useDashboardStore';
 
+const isLogType = (v: string): v is 'api_call' | 'session_event' | 'all' =>
+  v === 'api_call' || v === 'session_event' || v === 'all';
+
 export function LogsDashboard() {
   const { localAccounts } = useDashboardStore();
   const { 
@@ -51,7 +54,10 @@ export function LogsDashboard() {
         <select 
           className="bg-white/5 border border-white/10 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500/50"
           value={filters.type || 'all'}
-          onChange={(e) => updateFilters({ type: e.target.value as any })}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (isLogType(v)) updateFilters({ type: v });
+          }}
         >
           <option value="all">All Types</option>
           <option value="api_call">API Calls</option>

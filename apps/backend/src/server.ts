@@ -146,11 +146,7 @@ function getRawAccountsForQuota(): Array<{ email: string; refreshToken: string; 
 
 initializeProxyRoutes(
   async (refreshToken: string) => {
-    const cached = quotaService['tokenCache'].get(refreshToken);
-    if (cached && cached.expiresAt > Date.now() + 60000) {
-      return cached.accessToken;
-    }
-    return quotaService['refreshAccessToken'](refreshToken);
+    return quotaService.getAccessToken(refreshToken);
   },
   () => {
     const raw = getRawAccountsForQuota();
@@ -436,6 +432,7 @@ setInterval(() => {
 }, 60 * 1000);
 
 let activeAuthServer: ReturnType<typeof createServer> | null = null;
+let activeAuthServerCloseTimeout: NodeJS.Timeout | null = null;
 
 app.get('/api/auth/google/url', (req, res) => {
   try {
@@ -443,6 +440,12 @@ app.get('/api/auth/google/url', (req, res) => {
     if (!clientId) {
       res.status(500).json({ success: false, error: 'GOOGLE_CLIENT_ID not configured' });
       return;
+    }
+
+    // Cancel any pending server close timeout when a new auth session starts
+    if (activeAuthServerCloseTimeout) {
+      clearTimeout(activeAuthServerCloseTimeout);
+      activeAuthServerCloseTimeout = null;
     }
 
     const state = base64URLEncode(crypto.randomBytes(16));
@@ -464,7 +467,14 @@ app.get('/api/auth/google/url', (req, res) => {
 
     if (!activeAuthServer) {
       activeAuthServer = createServer(async (req, res) => {
-        const parsedUrl = new URL(req.url || '', `http://${req.headers.host}`);
+        let parsedUrl: URL;
+        try {
+          parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+        } catch {
+          res.writeHead(400);
+          res.end('Invalid URL');
+          return;
+        }
 
         if (parsedUrl.pathname === '/oauth-callback') {
           const code = parsedUrl.searchParams.get('code');
@@ -500,7 +510,12 @@ app.get('/api/auth/google/url', (req, res) => {
               body: params
             });
 
-            const tokens = await response.json() as any;
+            const tokens = await response.json() as { 
+              refresh_token?: string; 
+              id_token?: string; 
+              error?: string; 
+              error_description?: string;
+            };
             if (!response.ok) {
               throw new Error(`Token exchange failed: ${tokens.error_description || tokens.error || 'Unknown error'}`);
             }
@@ -531,19 +546,22 @@ app.get('/api/auth/google/url', (req, res) => {
               timestamp: Date.now()
             });
 
+            const escapedEmail = email.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(`<!DOCTYPE html><html><head><title>Success</title><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}</style></head><body><div style="text-align:center"><h1 style="color:#4ade80">Authentication Successful</h1><p>Account ${email} added.</p><script>setTimeout(()=>window.close(),2000)</script></div></body></html>`);
-
-            setTimeout(() => {
+            res.end(`<!DOCTYPE html><html><head><title>Success</title><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}</style></head><body><div style="text-align:center"><h1 style="color:#4ade80">Authentication Successful</h1><p>Account ${escapedEmail} added.</p><script>setTimeout(()=>window.close(),2000)</script></div></body></html>`);
+          } catch (e: unknown) {
+            const errorMessage = e instanceof Error ? e.message : String(e);
+            const escapedMessage = errorMessage.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            res.writeHead(400, { 'Content-Type': 'text/html' });
+            res.end(`<!DOCTYPE html><html><head><title>Error</title><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#f87171;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}</style></head><body><div style="text-align:center;max-width:400px"><h1>Authentication Failed</h1><p>${escapedMessage}</p></div></body></html>`);
+          } finally {
+            activeAuthServerCloseTimeout = setTimeout(() => {
               if (activeAuthServer) {
                 activeAuthServer.close();
                 activeAuthServer = null;
               }
+              activeAuthServerCloseTimeout = null;
             }, 5000);
-
-          } catch (e: any) {
-            res.writeHead(400, { 'Content-Type': 'text/html' });
-            res.end(`<!DOCTYPE html><html><head><title>Error</title><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#f87171;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}</style></head><body><div style="text-align:center;max-width:400px"><h1>Authentication Failed</h1><p>${e.message}</p></div></body></html>`);
           }
         } else {
           res.writeHead(404);
@@ -1179,17 +1197,10 @@ app.get('/api/accounts/burn-rate', (req, res) => {
       const stats = monitor.getAccountBurnRateDetailed(acc.email);
       const quota = quotas.find(q => q.email === acc.email);
 
-      const claudeTotal = (quota?.claudeQuotaPercent && quota?.claudeQuotaPercent > 0)
-        ? (stats.claudeTokens1h / (1 - quota.claudeQuotaPercent / 100)) // Very rough estimate if we don't know max
-        : 1000000; // Fallback to 1M tokens if unknown
-
-      // Better way: use remainingFraction from API if we had it directly here
-      // But for now, let's just return the raw tokens and let frontend handle % if it has quota info
-
       return {
         email: acc.email,
-        claudeTokens1h: stats.claudeTokens1h || 0,
-        geminiTokens1h: stats.geminiTokens1h || 0,
+        claudeTokens1h: stats?.claudeTokens1h || 0,
+        geminiTokens1h: stats?.geminiTokens1h || 0,
         claudeQuotaPercent: quota?.claudeQuotaPercent,
         geminiQuotaPercent: quota?.geminiQuotaPercent,
         claudeResetTime: quota?.claudeResetTime,
@@ -1258,7 +1269,7 @@ app.get('/api/logs/combined', (req, res) => {
       accountEmail: req.query.accountEmail as string,
       model: req.query.model as string,
       status: req.query.status as string,
-      type: req.query.type as any,
+      type: req.query.type as 'api_call' | 'session_event' | 'all' | undefined,
       startDate: req.query.startDate ? parseInt(req.query.startDate as string) : undefined,
       endDate: req.query.endDate ? parseInt(req.query.endDate as string) : undefined,
       search: req.query.search as string,

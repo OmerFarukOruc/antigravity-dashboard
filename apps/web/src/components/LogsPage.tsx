@@ -28,7 +28,12 @@ const TYPE_OPTIONS = [
   { label: 'All', value: 'all' },
   { label: 'API Calls', value: 'api_call' },
   { label: 'Events', value: 'session_event' },
-];
+] as const;
+
+type LogTypeValue = typeof TYPE_OPTIONS[number]['value'];
+
+const isLogType = (v: string): v is LogTypeValue =>
+  v === 'api_call' || v === 'session_event' || v === 'all';
 
 interface LogsResponse {
   success: boolean;
@@ -261,7 +266,10 @@ export function LogsPage() {
           <select 
             className="bg-white/5 border border-white/10 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500/50 min-w-[120px]"
             value={selectedType}
-            onChange={(e) => setSelectedType(e.target.value as any)}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (isLogType(v)) setSelectedType(v);
+            }}
           >
             {TYPE_OPTIONS.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>

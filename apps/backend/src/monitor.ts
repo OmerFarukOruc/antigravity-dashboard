@@ -407,7 +407,7 @@ export class UsageMonitor {
     transaction(events);
   }
 
-  getAccountBurnRateDetailed(email: string): any {
+  getAccountBurnRateDetailed(email: string): { claudeTokens1h: number; geminiTokens1h: number } | null {
     const oneHourAgo = Date.now() - 3600000;
     
     const query = `
@@ -418,7 +418,8 @@ export class UsageMonitor {
       WHERE account_email = ? AND status = 'success'
     `;
     
-    return this.db.prepare(query).get(oneHourAgo, oneHourAgo, email);
+    const result = this.db.prepare(query).get(oneHourAgo, oneHourAgo, email) as { claudeTokens1h: number; geminiTokens1h: number } | undefined;
+    return result ?? null;
   }
 
   getHourlyUsageTimeline(email?: string, hours: number = 24): TimelineSlice[] {
@@ -447,13 +448,13 @@ export class UsageMonitor {
         params.push(email);
       }
       
-      const stats = this.db.prepare(query).get(...params) as any;
+      const stats = this.db.prepare(query).get(...params) as { claudeTokens: number | null; geminiTokens: number | null } | undefined;
       
       slices.push({
         startTime: sliceStartTime,
         endTime: sliceEndTime,
-        claudeTokens: stats.claudeTokens || 0,
-        geminiTokens: stats.geminiTokens || 0,
+        claudeTokens: stats?.claudeTokens || 0,
+        geminiTokens: stats?.geminiTokens || 0,
         claudePercentUsed: 0, // Calculated on frontend with quota info
         geminiPercentUsed: 0, // Calculated on frontend with quota info
         currentSlice: now >= sliceStartTime && now < sliceEndTime
@@ -640,7 +641,7 @@ export class UsageMonitor {
       ORDER BY interval_ts ASC
     `);
     
-    const rows = stmt.all(modelFamily, since) as any[];
+    const rows = stmt.all(modelFamily, since) as Array<{ interval_ts: number; avg_percent: number; count: number }>;
     return rows.map(r => ({
       timestamp: r.interval_ts,
       avgPercent: r.avg_percent,
